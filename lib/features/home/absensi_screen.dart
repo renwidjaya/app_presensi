@@ -134,7 +134,7 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
             // Lokasi dummy
             const Icon(Icons.location_on, color: Colors.red, size: 40),
             const Text(
-              'Lokasi: Jl. Contoh No.123',
+              'Lokasi: Jl. Al Falah 2 Rt.02/08 No 10 E',
               style: TextStyle(fontSize: 16),
             ),
 
