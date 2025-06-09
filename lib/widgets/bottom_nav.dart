@@ -9,7 +9,7 @@ class BottomNav extends StatelessWidget {
   void _onItemTapped(BuildContext context, int index) {
     switch (index) {
       case 0:
-        context.go('/absensi');
+        context.go('/dashboard');
         break;
       case 1:
         context.go('/riwayat');
