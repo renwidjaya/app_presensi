@@ -1,19 +1,20 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class LocalStorageService {
+  // Inisialisasi storage
+  static const _storage = FlutterSecureStorage();
+
   static Future<void> saveUserData(
     Map<String, dynamic> userData,
     String token,
   ) async {
-    final prefs = await SharedPreferences.getInstance();
-    prefs.setString('user', jsonEncode(userData));
-    prefs.setString('token', token);
+    await _storage.write(key: 'user', value: jsonEncode(userData));
+    await _storage.write(key: 'token', value: token);
   }
 
   static Future<Map<String, dynamic>?> getUserData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final jsonString = prefs.getString('user');
+    final jsonString = await _storage.read(key: 'user');
     if (jsonString != null) {
       return jsonDecode(jsonString);
     }
@@ -21,12 +22,11 @@ class LocalStorageService {
   }
 
   static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('token');
+    return await _storage.read(key: 'token');
   }
 
   static Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    await _storage.delete(key: 'user');
+    await _storage.delete(key: 'token');
   }
 }
