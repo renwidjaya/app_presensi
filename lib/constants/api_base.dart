@@ -10,6 +10,7 @@ class ApiBase {
   static const String checkinUpdate = "/api/v1-presensi/checkin";
   static const String statistik = "/api/v1-presensi/statistik";
   static const String export = "/api/v1-presensi/export";
+  static const String reportAll = "/api/v1-presensi/report/all";
   static const String profilPhoto = "/profil";
   static const String presensiPhoto = "/presensi";
 }
