@@ -13,6 +13,8 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   String? userName;
   String? token;
+  bool isAdmin = false;
+  bool loaded = false;
 
   @override
   void initState() {
@@ -28,10 +30,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         userName = userData['nama'];
         token = storedToken;
+        isAdmin = userData['role'] == 'admin';
+        loaded = true;
       });
 
       print('✅ User: $userData');
       print('✅ Token: $storedToken');
+    } else {
+      setState(() => loaded = true);
     }
   }
 
@@ -43,9 +49,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // sementara loading userData, tampilkan placeholder
+    if (!loaded) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    // build list kartu dashboard
+    final cards = <Widget>[
+      _DashboardCard(
+        title: 'Absensi',
+        icon: Icons.check_circle,
+        color: Colors.blue,
+        onTap: () => context.go('/absensi'),
+      ),
+      _DashboardCard(
+        title: 'Riwayat',
+        icon: Icons.history,
+        color: Colors.orange,
+        onTap: () => context.go('/riwayat'),
+      ),
+      _DashboardCard(
+        title: 'Statistik',
+        icon: Icons.bar_chart,
+        color: Colors.green,
+        onTap: () => context.go('/statistik'),
+      ),
+    ];
+
+    if (isAdmin) {
+      cards.add(
+        _DashboardCard(
+          title: 'Report',
+          icon: Icons.pie_chart,
+          color: Colors.purple,
+          onTap: () => context.go('/report'),
+        ),
+      );
+    }
+
     return Scaffold(
-      appBar: AppBar(title: Text('Hello ${userName ?? "Loading..."}')),
-      bottomNavigationBar: const BottomNav(currentIndex: 0),
+      appBar: AppBar(title: Text('Hello ${userName ?? ''}')),
+      bottomNavigationBar: BottomNav(currentIndex: 0),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -55,32 +99,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 crossAxisCount: 2,
                 mainAxisSpacing: 16,
                 crossAxisSpacing: 16,
-                children: [
-                  _DashboardCard(
-                    title: 'Absensi',
-                    icon: Icons.check_circle,
-                    color: Colors.blue,
-                    onTap: () => context.go('/absensi'),
-                  ),
-                  _DashboardCard(
-                    title: 'Riwayat',
-                    icon: Icons.history,
-                    color: Colors.orange,
-                    onTap: () => context.go('/riwayat'),
-                  ),
-                  _DashboardCard(
-                    title: 'Statistik',
-                    icon: Icons.bar_chart,
-                    color: Colors.green,
-                    onTap: () => context.go('/statistik'),
-                  ),
-                  _DashboardCard(
-                    title: 'Report',
-                    icon: Icons.pie_chart,
-                    color: Colors.purple,
-                    onTap: () => context.go('/report'),
-                  ),
-                ],
+                children: cards,
               ),
             ),
             const SizedBox(height: 16),
