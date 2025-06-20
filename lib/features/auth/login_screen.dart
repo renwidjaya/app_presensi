@@ -21,11 +21,13 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => isLoading = true);
 
     try {
-      final response = await ApiService.post(ApiBase.login, {
-        'email': emailController.text,
-        'password': passwordController.text,
-      });
-
+      final response = await ApiService.post(
+        ApiBase.login,
+        body: {
+          'email': emailController.text,
+          'password': passwordController.text,
+        },
+      );
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         final userData = body['data'];
