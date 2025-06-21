@@ -9,9 +9,8 @@ import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
-import '../../widgets/bottom_nav.dart';
-import '../../services/api_service.dart';
 import '../../constants/api_base.dart';
+import '../../services/api_service.dart';
 import '../../services/local_storage_service.dart';
 
 class ReportScreen extends StatefulWidget {
@@ -229,7 +228,6 @@ class _ReportScreenState extends State<ReportScreen> {
         ),
         title: const Text('Report'),
       ),
-      bottomNavigationBar: const BottomNav(currentIndex: 3),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

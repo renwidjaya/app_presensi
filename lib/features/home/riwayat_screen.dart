@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import '../../widgets/bottom_nav.dart';
-import '../../services/local_storage_service.dart';
-import '../../services/api_service.dart';
 import '../../constants/api_base.dart';
+import '../../services/api_service.dart';
+import 'package:go_router/go_router.dart';
+import '../../services/local_storage_service.dart';
 
 class RiwayatScreen extends StatefulWidget {
   const RiwayatScreen({super.key});
@@ -60,7 +59,6 @@ class _RiwayatScreenState extends State<RiwayatScreen> {
         ),
         title: const Text('Riwayat Absensi'),
       ),
-      bottomNavigationBar: const BottomNav(currentIndex: 1),
       body:
           isLoading
               ? const Center(child: CircularProgressIndicator())

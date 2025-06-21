@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_face_api/flutter_face_api.dart';
@@ -14,7 +13,6 @@ import 'package:path/path.dart' as path;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../widgets/bottom_nav.dart';
 import '../../constants/api_base.dart';
 import '../../services/api_service.dart';
 import '../../utils/location_helper.dart';
@@ -36,6 +34,7 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
   int _idKaryawan = 0;
   String _timeString = '';
   String? _imageProfilUrl;
+  bool _isLoading = false;
   bool _isCheckedIn = false;
   Map<String, dynamic>? _lastPresensiData;
   String _lokasi = 'Membaca lokasi...';
@@ -131,27 +130,29 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
   }
 
   Future<void> _handleAbsensi() async {
-    final cameraGranted = await Permission.camera.request();
-    if (!cameraGranted.isGranted) {
-      _showSnack('Izin kamera diperlukan');
-      return;
-    }
-
-    final result = await FaceSDK.instance.startFaceCapture();
-    final faceImage = result.image?.image;
-
-    if (faceImage == null) {
-      _showSnack('Wajah tidak terdeteksi');
-      return;
-    }
-
-    // Validasi: pastikan ada URL referensi wajah
-    if (_imageProfilUrl == null || _imageProfilUrl!.isEmpty) {
-      _showSnack('Foto referensi tidak tersedia');
-      return;
-    }
-
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
     try {
+      final cameraGranted = await Permission.camera.request();
+      if (!cameraGranted.isGranted) {
+        _showSnack('Izin kamera diperlukan', isError: true);
+        return;
+      }
+
+      final result = await FaceSDK.instance.startFaceCapture();
+      final faceImage = result.image?.image;
+
+      if (faceImage == null) {
+        _showSnack('Wajah tidak terdeteksi', isError: true);
+        return;
+      }
+
+      // Validasi: pastikan ada URL referensi wajah
+      if (_imageProfilUrl == null || _imageProfilUrl!.isEmpty) {
+        _showSnack('Foto referensi tidak tersedia', isError: true);
+        return;
+      }
+
       // Ambil foto referensi dari URL
       final refResp = await http.get(Uri.parse(_imageProfilUrl!));
       final referenceImageBytes = refResp.bodyBytes;
@@ -166,7 +167,7 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
 
       if (matchResponse.results.isEmpty ||
           matchResponse.results.first.similarity < 0.85) {
-        _showSnack('Wajah tidak cocok, absen ditolak');
+        _showSnack('Wajah tidak cocok, absen ditolak', isError: true);
         return;
       }
 
@@ -229,18 +230,27 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
             errorMsg = body['message'];
           }
         } catch (_) {}
-        _showSnack(errorMsg);
+        _showSnack(errorMsg, isError: true);
       }
     } catch (e) {
-      _showSnack("Terjadi kesalahan: $e");
+      _showSnack("Terjadi kesalahan: $e", isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showSnack(String message) {
+  void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -251,8 +261,18 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final jamMasuk = _lastPresensiData?['jam_masuk'] ?? '-';
-    final jamPulang = _lastPresensiData?['jam_pulang'] ?? '-';
+    String formatJam(String? jamRaw) {
+      if (jamRaw == null || jamRaw.isEmpty || jamRaw == 'null') return '-';
+      try {
+        final jam = DateFormat('HH:mm:ss').parse(jamRaw);
+        return DateFormat('HH:mm').format(jam);
+      } catch (_) {
+        return '-';
+      }
+    }
+
+    final jamMasuk = formatJam(_lastPresensiData?['jam_masuk']);
+    final jamPulang = formatJam(_lastPresensiData?['jam_pulang']);
 
     return Scaffold(
       appBar: AppBar(
@@ -262,7 +282,6 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
           onPressed: () => context.go('/dashboard'),
         ),
       ),
-      bottomNavigationBar: const BottomNav(currentIndex: 0),
       body: Column(
         children: [
           SizedBox(
@@ -340,15 +359,25 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
           ),
           const SizedBox(height: 8),
           ElevatedButton(
-            onPressed: _handleAbsensi,
+            onPressed: _isLoading ? null : _handleAbsensi,
             style: ElevatedButton.styleFrom(
               backgroundColor: _isCheckedIn ? Colors.red : Colors.green,
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
             ),
-            child: Text(
-              _isCheckedIn ? 'Check Out' : 'Check In',
-              style: const TextStyle(fontSize: 18),
-            ),
+            child:
+                _isLoading
+                    ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                    : Text(
+                      _isCheckedIn ? 'Check Out' : 'Check In',
+                      style: const TextStyle(fontSize: 18),
+                    ),
           ),
           const SizedBox(height: 8),
           const Divider(),
@@ -408,7 +437,7 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
                                   color: Colors.grey,
                                 ),
                                 const SizedBox(width: 8),
-                                Text("Masuk: $jamMasuk"),
+                                Text("Absen Masuk: $jamMasuk"),
                               ],
                             ),
                             const SizedBox(height: 4),
@@ -420,7 +449,7 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
                                   color: Colors.grey,
                                 ),
                                 const SizedBox(width: 8),
-                                Text("Pulang: $jamPulang"),
+                                Text("Absen Pulang: $jamPulang"),
                               ],
                             ),
                             const SizedBox(height: 8),

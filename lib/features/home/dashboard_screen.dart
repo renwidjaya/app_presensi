@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:app_presensi/widgets/bottom_nav.dart';
 import 'package:app_presensi/services/local_storage_service.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -12,7 +11,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   String? userName;
-  String? token;
+  String? userPhoto;
   bool isAdmin = false;
   bool loaded = false;
 
@@ -24,18 +23,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadUserData() async {
     final userData = await LocalStorageService.getUserData();
-    final storedToken = await LocalStorageService.getToken();
 
     if (userData != null) {
       setState(() {
         userName = userData['nama'];
-        token = storedToken;
+        userPhoto = userData['image_profil'];
         isAdmin = userData['role'] == 'ADMIN';
         loaded = true;
       });
-
-      print('✅ User: $userData');
-      print('✅ Token: $storedToken');
     } else {
       setState(() => loaded = true);
     }
@@ -49,12 +44,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // sementara loading userData, tampilkan placeholder
     if (!loaded) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // build list kartu dashboard
     final cards = <Widget>[
       _DashboardCard(
         title: 'Absensi',
@@ -88,21 +81,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text('Hello ${userName ?? ''}')),
-      bottomNavigationBar: BottomNav(currentIndex: 0),
+      appBar: AppBar(title: const Text(""), automaticallyImplyLeading: false),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // Foto dan nama user
+            Column(
+              children: [
+                CircleAvatar(
+                  radius: 40,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage:
+                      (userPhoto != null && userPhoto!.isNotEmpty)
+                          ? NetworkImage(userPhoto!)
+                          : null,
+                  child:
+                      (userPhoto == null || userPhoto!.isEmpty)
+                          ? const Icon(
+                            Icons.person,
+                            size: 40,
+                            color: Colors.white,
+                          )
+                          : null,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Halo, ${userName ?? '-'}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            // Card grid menu
             Expanded(
               child: GridView.count(
                 crossAxisCount: 2,
                 mainAxisSpacing: 16,
                 crossAxisSpacing: 16,
+                childAspectRatio: 1.1,
                 children: cards,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             ElevatedButton.icon(
               onPressed: () => _logout(context),
               icon: const Icon(Icons.logout),
@@ -111,6 +136,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
             ),
           ],
@@ -138,25 +166,40 @@ class _DashboardCard extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Card(
-        color: color.withOpacity(0.1),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 48, color: color),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withOpacity(0.1),
               ),
-            ],
-          ),
+              child: Icon(icon, size: 30, color: color),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+          ],
         ),
       ),
     );

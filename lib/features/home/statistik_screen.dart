@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:fl_chart/fl_chart.dart';
-import '../../widgets/bottom_nav.dart';
-import '../../services/api_service.dart';
 import '../../constants/api_base.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:go_router/go_router.dart';
+import '../../services/api_service.dart';
 import '../../services/local_storage_service.dart';
 
 class StatistikScreen extends StatefulWidget {
@@ -80,7 +79,6 @@ class _StatistikScreenState extends State<StatistikScreen> {
         ),
         title: const Text('Statistik Absensi'),
       ),
-      bottomNavigationBar: const BottomNav(currentIndex: 2),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
