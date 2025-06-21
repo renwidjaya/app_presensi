@@ -1,9 +1,24 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_face_api/flutter_face_api.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+
 import '../../widgets/bottom_nav.dart';
+import '../../constants/api_base.dart';
+import '../../services/api_service.dart';
+import '../../utils/location_helper.dart';
+import '../../services/local_storage_service.dart';
 
 class AbsensiScreen extends StatefulWidget {
   const AbsensiScreen({super.key});
@@ -16,6 +31,15 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
   Timer? _timer;
   String _timeString = '';
   bool _isCheckedIn = false;
+  int? _presensiId;
+  int _idKaryawan = 0;
+  String? _token;
+  double? currentLat;
+  double? currentLng;
+  Map<String, dynamic>? _lastPresensiData;
+  String _lokasi = 'Membaca lokasi...';
+
+  final String kategori = 'MASUK_KERJA';
 
   @override
   void initState() {
@@ -23,14 +47,24 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
     initFaceSDK();
     _updateTime();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTime());
+    _loadUserData();
+    _getLokasi();
   }
 
-  Future<void> initFaceSDK() async {
-    try {
-      await FaceSDK.instance.initialize();
-    } catch (e) {
-      print("Error initializing FaceSDK: $e");
-    }
+  Future<void> _getLokasi() async {
+    final lokasi = await LocationHelper.getCurrentAddress();
+    final coords = await LocationHelper.getCurrentCoordinates();
+
+    if (!mounted) return;
+
+    setState(() {
+      _lokasi = lokasi;
+      currentLat = coords?.latitude ?? 0.0;
+      currentLng = coords?.longitude ?? 0.0;
+    });
+
+    debugPrint("CHECK latitude: ${coords?.latitude}");
+    debugPrint("CHECK longitude: ${coords?.longitude}");
   }
 
   void _updateTime() {
@@ -43,141 +77,394 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
     });
   }
 
+  Future<void> initFaceSDK() async {
+    try {
+      await FaceSDK.instance.initialize();
+    } catch (e) {
+      debugPrint("Error initializing FaceSDK: $e");
+    }
+  }
+
+  Future<void> _loadUserData() async {
+    final user = await LocalStorageService.getUserData();
+    final token = await LocalStorageService.getToken();
+    if (user != null && token != null) {
+      setState(() {
+        _idKaryawan = user['id_karyawan'];
+        _token = token;
+      });
+      await _checkLastPresensi();
+    }
+  }
+
+  Future<void> _checkLastPresensi() async {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    final response = await ApiService.get(
+      "${ApiBase.presensiLast}$_idKaryawan",
+      token: _token,
+    );
+
+    if (response.statusCode == 200 && response.body.isNotEmpty) {
+      final data = jsonDecode(response.body);
+      final dataTanggal = (data['tanggal'] ?? '').toString().trim();
+
+      debugPrint("Tanggal dari API: $dataTanggal");
+      debugPrint("Tanggal lokal: $today");
+
+      if (dataTanggal == today) {
+        setState(() {
+          _isCheckedIn = data['jam_pulang'] == null;
+          _presensiId = data['id_absensi'];
+          _lastPresensiData = data;
+        });
+      } else {
+        setState(() {
+          _lastPresensiData = null;
+        });
+      }
+
+      debugPrint("last presensi: $_lastPresensiData");
+    }
+  }
+
+  Future<void> _handleAbsensi() async {
+    final cameraGranted = await Permission.camera.request();
+    if (!cameraGranted.isGranted) {
+      _showSnack('Izin kamera diperlukan');
+      return;
+    }
+
+    final result = await FaceSDK.instance.startFaceCapture();
+    final faceImage = result.image?.image;
+
+    if (faceImage == null) {
+      _showSnack('Wajah tidak terdeteksi');
+      return;
+    }
+
+    try {
+      final Uint8List imageBytes = faceImage;
+      final tempDir = await getTemporaryDirectory();
+      final filePath = path.join(
+        tempDir.path,
+        "face_${DateTime.now().millisecondsSinceEpoch}.jpg",
+      );
+      final imageFile = await File(filePath).writeAsBytes(imageBytes);
+
+      final now = DateTime.now();
+      final tanggal = DateFormat('yyyy-MM-dd').format(now);
+      final jam = DateFormat('HH:mm:ss').format(now);
+
+      // Hitung lembur jika jam pulang lewat dari 16:30
+      String totalJamLembur = "0";
+      if (_isCheckedIn) {
+        final jamPulang = now;
+        final batasPulang = DateTime(now.year, now.month, now.day, 16, 30);
+        if (jamPulang.isAfter(batasPulang)) {
+          final duration = jamPulang.difference(batasPulang);
+          totalJamLembur = duration.toString().split('.').first; // "HH:MM:SS"
+        }
+      }
+
+      final response = await ApiService.multipart(
+        endpoint:
+            _isCheckedIn ? "${ApiBase.checkin}/$_presensiId" : ApiBase.checkin,
+        method: _isCheckedIn ? 'PUT' : 'POST',
+        token: _token,
+        fields:
+            _isCheckedIn
+                ? {
+                  'jam_pulang': jam,
+                  'lokasi_pulang': _lokasi,
+                  'total_jam_lembur': totalJamLembur,
+                }
+                : {
+                  'id_karyawan': _idKaryawan.toString(),
+                  'tanggal': tanggal,
+                  'jam_masuk': jam,
+                  'lokasi_masuk': _lokasi,
+                  'kategori': kategori,
+                },
+        files: [
+          await http.MultipartFile.fromPath(
+            _isCheckedIn ? 'foto_pulang' : 'foto_masuk',
+            imageFile.path,
+          ),
+        ],
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        _showSnack("${_isCheckedIn ? 'Check-Out' : 'Check-In'} berhasil!");
+        await _checkLastPresensi();
+      } else {
+        String errorMsg = 'Gagal absen: ${response.statusCode}';
+        try {
+          final body = jsonDecode(response.body);
+          if (body is Map && body.containsKey('message')) {
+            errorMsg = body['message'];
+          }
+        } catch (_) {}
+        _showSnack(errorMsg);
+      }
+    } catch (e) {
+      _showSnack("Terjadi kesalahan: $e");
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
     super.dispose();
   }
 
-  Future<void> _handleAbsensi() async {
-    // Step 1: Minta permission kamera
-    final cameraGranted = await Permission.camera.request();
-    if (!cameraGranted.isGranted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Izin kamera diperlukan untuk absensi')),
-      );
-      return;
-    }
-
-    try {
-      // Step 2: Jalankan face capture
-      final response = await FaceSDK.instance.startFaceCapture(
-        config: FaceCaptureConfig(
-          cameraPositionAndroid: 0, // 0 = Depan, 1 = Belakang
-          cameraPositionIOS: CameraPosition.FRONT,
-          cameraSwitchEnabled: true,
-        ),
-      );
-
-      // Step 3: Debug log
-      print("APPPPP response image: ${response.image?.image}");
-      print("APPPPP response error: ${response.error?.message}");
-      print("APPPPP response full: ${response.toJson()}");
-
-      // Step 4: Cek hasil
-      if (response.image?.image != null) {
-        setState(() {
-          _isCheckedIn = !_isCheckedIn;
-        });
-
-        final status = _isCheckedIn ? 'Check-In' : 'Check-Out';
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$status berhasil dengan verifikasi wajah!')),
-        );
-
-        // TODO: Simpan data wajah jika diperlukan
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Verifikasi wajah dibatalkan atau gagal.'),
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Terjadi kesalahan: ${e.toString()}')),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final jamMasuk = _lastPresensiData?['jam_masuk'] ?? '-';
+    final jamPulang = _lastPresensiData?['jam_pulang'] ?? '-';
+
     return Scaffold(
       appBar: AppBar(
+        title: const Text("Absensi"),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/dashboard'),
         ),
-        title: const Text('Absensi'),
       ),
       bottomNavigationBar: const BottomNav(currentIndex: 0),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(
-              _timeString,
-              style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
+      body: Column(
+        children: [
+          SizedBox(
+            height: 320,
+            child:
+                (currentLat == null ||
+                        currentLng == null ||
+                        (currentLat == 0.0 && currentLng == 0.0))
+                    ? const Center(child: CircularProgressIndicator())
+                    : Stack(
+                      children: [
+                        FlutterMap(
+                          options: MapOptions(
+                            center: LatLng(currentLat!, currentLng!),
+                            zoom: 16.0,
+                          ),
+                          children: [
+                            TileLayer(
+                              urlTemplate:
+                                  "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                              userAgentPackageName: 'com.example.app_presensi',
+                            ),
+                            MarkerLayer(
+                              markers: [
+                                Marker(
+                                  point: LatLng(currentLat!, currentLng!),
+                                  width: 80,
+                                  height: 80,
+                                  child: const Icon(
+                                    Icons.location_pin,
+                                    color: Colors.red,
+                                    size: 40,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Positioned(
+                          top: 16,
+                          left: 0,
+                          right: 0,
+                          child: Column(
+                            children: [
+                              Text(
+                                _timeString,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blueAccent,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black,
+                                      blurRadius: 4,
+                                      offset: Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              _lokasi,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Waktu Sekarang',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton(
+            onPressed: _handleAbsensi,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _isCheckedIn ? Colors.red : Colors.green,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
             ),
-            const SizedBox(height: 24),
-
-            // Lokasi dummy
-            const Icon(Icons.location_on, color: Colors.red, size: 40),
-            const Text(
-              'Lokasi: Jl. Al Falah 2 Rt.02/08 No 10 E',
-              style: TextStyle(fontSize: 16),
+            child: Text(
+              _isCheckedIn ? 'Check Out' : 'Check In',
+              style: const TextStyle(fontSize: 18),
             ),
-
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: _handleAbsensi,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isCheckedIn ? Colors.red : Colors.green,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
+          ),
+          const SizedBox(height: 8),
+          const Divider(),
+          if (_lastPresensiData != null)
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Riwayat Hari Ini',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 4,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  jamPulang == '-' ? Icons.login : Icons.logout,
+                                  color:
+                                      jamPulang == '-'
+                                          ? Colors.green
+                                          : Colors.red,
+                                  size: 32,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  jamPulang == '-' ? 'Check In' : 'Check Out',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const Spacer(),
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.access_time,
+                                  size: 20,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Text("Masuk: $jamMasuk"),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.access_time_filled,
+                                  size: 20,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                Text("Pulang: $jamPulang"),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.location_on,
+                                  size: 20,
+                                  color: Colors.blue,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    "Lokasi Masuk: ${_lastPresensiData?['lokasi_masuk'] ?? '-'}",
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.location_on_outlined,
+                                  size: 20,
+                                  color: Colors.blue,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    "Lokasi Pulang: ${_lastPresensiData?['lokasi_pulang'] ?? '-'}",
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_lastPresensiData!['total_jam_lembur'] !=
+                                    null &&
+                                _lastPresensiData!['total_jam_lembur'] != '0')
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.access_alarm,
+                                      size: 20,
+                                      color: Colors.orange,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      "Lembur: ${_lastPresensiData!['total_jam_lembur']}",
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.orange,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Text(
-                _isCheckedIn ? 'Check Out' : 'Check In',
-                style: const TextStyle(fontSize: 18),
-              ),
             ),
-
-            const SizedBox(height: 40),
-            const Divider(height: 32),
-
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Riwayat Hari Ini',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  _isCheckedIn ? Icons.login : Icons.logout,
-                  color: _isCheckedIn ? Colors.green : Colors.red,
-                ),
-                title: Text(_isCheckedIn ? 'Check In' : 'Check Out'),
-                subtitle: Text('Pukul $_timeString'),
-                trailing: const Icon(Icons.check_circle, color: Colors.green),
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }

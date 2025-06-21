@@ -64,4 +64,25 @@ class ApiService {
       body: body != null ? jsonEncode(body) : null,
     );
   }
+
+  static Future<http.Response> multipart({
+    required String endpoint,
+    required Map<String, String> fields,
+    required List<http.MultipartFile> files,
+    String method = 'POST',
+    String? token,
+  }) async {
+    final uri = Uri.parse('$_baseUrl$endpoint');
+    final request = http.MultipartRequest(method, uri);
+
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    request.fields.addAll(fields);
+    request.files.addAll(files);
+
+    final streamed = await request.send();
+    return await http.Response.fromStream(streamed);
+  }
 }
