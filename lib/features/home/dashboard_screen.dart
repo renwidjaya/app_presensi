@@ -36,6 +36,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Center(
+              child: Text(
+                "Konfirmasi",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+            ),
+            content: const Text(
+              "Apakah Anda yakin ingin keluar dari aplikasi?",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text("Batal"),
+              ),
+              ElevatedButton(
+                onPressed: () => _logout(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text("Ya, Logout"),
+              ),
+            ],
+          ),
+    );
+  }
+
   void _logout(BuildContext context) async {
     await LocalStorageService.clear();
     if (!context.mounted) return;
@@ -129,7 +162,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 8),
             ElevatedButton.icon(
-              onPressed: () => _logout(context),
+              onPressed: () => showLogoutDialog(context),
               icon: const Icon(Icons.logout),
               label: const Text("Logout"),
               style: ElevatedButton.styleFrom(
