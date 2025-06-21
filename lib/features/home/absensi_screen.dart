@@ -29,13 +29,14 @@ class AbsensiScreen extends StatefulWidget {
 
 class _AbsensiScreenState extends State<AbsensiScreen> {
   Timer? _timer;
-  String _timeString = '';
-  bool _isCheckedIn = false;
-  int? _presensiId;
-  int _idKaryawan = 0;
   String? _token;
+  int? _presensiId;
   double? currentLat;
   double? currentLng;
+  int _idKaryawan = 0;
+  String _timeString = '';
+  String? _imageProfilUrl;
+  bool _isCheckedIn = false;
   Map<String, dynamic>? _lastPresensiData;
   String _lokasi = 'Membaca lokasi...';
 
@@ -92,6 +93,7 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
       setState(() {
         _idKaryawan = user['id_karyawan'];
         _token = token;
+        _imageProfilUrl = user['image_profil'];
       });
       await _checkLastPresensi();
     }
@@ -143,27 +145,49 @@ class _AbsensiScreenState extends State<AbsensiScreen> {
       return;
     }
 
+    // Validasi: pastikan ada URL referensi wajah
+    if (_imageProfilUrl == null || _imageProfilUrl!.isEmpty) {
+      _showSnack('Foto referensi tidak tersedia');
+      return;
+    }
+
     try {
-      final Uint8List imageBytes = faceImage;
+      // Ambil foto referensi dari URL
+      final refResp = await http.get(Uri.parse(_imageProfilUrl!));
+      final referenceImageBytes = refResp.bodyBytes;
+
+      // Lakukan pencocokan wajah
+      final matchRequest = MatchFacesRequest([
+        MatchFacesImage(faceImage, ImageType.PRINTED),
+        MatchFacesImage(referenceImageBytes, ImageType.PRINTED),
+      ]);
+
+      final matchResponse = await FaceSDK.instance.matchFaces(matchRequest);
+
+      if (matchResponse.results.isEmpty ||
+          matchResponse.results.first.similarity < 0.85) {
+        _showSnack('Wajah tidak cocok, absen ditolak');
+        return;
+      }
+
+      // Simpan hasil foto
       final tempDir = await getTemporaryDirectory();
       final filePath = path.join(
         tempDir.path,
         "face_${DateTime.now().millisecondsSinceEpoch}.jpg",
       );
-      final imageFile = await File(filePath).writeAsBytes(imageBytes);
+      final imageFile = await File(filePath).writeAsBytes(faceImage);
 
       final now = DateTime.now();
       final tanggal = DateFormat('yyyy-MM-dd').format(now);
       final jam = DateFormat('HH:mm:ss').format(now);
 
-      // Hitung lembur jika jam pulang lewat dari 16:30
       String totalJamLembur = "0";
       if (_isCheckedIn) {
-        final jamPulang = now;
         final batasPulang = DateTime(now.year, now.month, now.day, 16, 30);
-        if (jamPulang.isAfter(batasPulang)) {
-          final duration = jamPulang.difference(batasPulang);
-          totalJamLembur = duration.toString().split('.').first; // "HH:MM:SS"
+        if (now.isAfter(batasPulang)) {
+          final duration = now.difference(batasPulang);
+          totalJamLembur = duration.toString().split('.').first;
         }
       }
 
