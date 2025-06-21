@@ -30,7 +30,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         userName = userData['nama'];
         token = storedToken;
-        isAdmin = userData['role'] == 'admin';
+        isAdmin = userData['role'] == 'ADMIN';
         loaded = true;
       });
 
